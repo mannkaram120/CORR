@@ -1,0 +1,11 @@
+﻿.env
+.env.local
+corr backend/.env
+corr backend/price_cache.json
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
