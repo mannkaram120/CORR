@@ -306,6 +306,37 @@ function detectFlashes(
   return alerts;
 }
 
+// ── Fetch real historical correlation matrix from backend ────────────────────
+async function fetchHistoricalMatrix(
+  scenarioId: ScenarioId,
+  tickers: string[]
+): Promise<CorrelationMatrix | null> {
+  try {
+    const params = tickers.length > 0 ? `?tickers=${tickers.join(',')}` : '';
+    const res = await fetch(`http://localhost:8000/historical/${scenarioId}${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as {
+      tickers: string[];
+      matrix:  number[][];
+      nObs:    number;
+      label:   string;
+    };
+    if (!data.tickers || !data.matrix) throw new Error('Invalid response shape');
+    return {
+      tickers:   data.tickers,
+      matrix:    data.matrix,
+      pValues:   data.matrix.map(row => row.map(() => 0)),
+      nObs:      data.nObs,
+      timestamp: new Date(),
+      method:    'Pearson',
+      lookback:  '1Y',
+    };
+  } catch (err) {
+    console.error(`[CORR] Historical fetch failed for ${scenarioId}:`, err);
+    return null;
+  }
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 export const useNexusStore = create<NexusState>((set, get) => {
   const getBaseMatrix = (): CorrelationMatrix | null => {
@@ -427,11 +458,28 @@ export const useNexusStore = create<NexusState>((set, get) => {
         set({ activeScenario, scenarioMatrix: null, portfolioMetrics: metrics });
         return;
       }
-      // Scenarios are correlation-only overlays; force CORR view
-      const scenarioMatrix = applyScenarioToLive(live, activeScenario);
-      const base = scenarioMatrix;
-      const metrics = get().portfolioMode ? computePortfolioMetrics(get().portfolioWeights, base) : null;
-      set({ activeScenario, scenarioMatrix, viewMode: 'corr', portfolioMetrics: metrics });
+      // Show loading immediately, then fetch real historical matrix from backend
+      set({ activeScenario, scenarioMatrix: null, viewMode: 'corr', isLoading: true });
+      const { activeInstruments, activeAssetClasses } = get();
+      const instruments = INSTRUMENTS.filter(i =>
+        activeAssetClasses.includes(i.assetClass) && activeInstruments.includes(i.ticker)
+      );
+      const tickers = instruments.map(i => i.ticker);
+      fetchHistoricalMatrix(activeScenario, tickers).then(historical => {
+        if (historical) {
+          // Real historical data from backend JSON files
+          const metrics = get().portfolioMode
+            ? computePortfolioMetrics(get().portfolioWeights, historical) : null;
+          set({ scenarioMatrix: historical, isLoading: false, portfolioMetrics: metrics });
+        } else {
+          // Backend unavailable — fall back to live+shock blend
+          console.warn(`[CORR] Historical data unavailable for ${activeScenario} — using live blend fallback`);
+          const scenarioMatrix = applyScenarioToLive(live, activeScenario);
+          const metrics = get().portfolioMode
+            ? computePortfolioMetrics(get().portfolioWeights, scenarioMatrix) : null;
+          set({ scenarioMatrix, isLoading: false, portfolioMetrics: metrics });
+        }
+      });
     },
 
     setPortfolioOpen: (portfolioOpen) => set({ portfolioOpen }),
