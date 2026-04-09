@@ -313,7 +313,7 @@ async function fetchHistoricalMatrix(
 ): Promise<CorrelationMatrix | null> {
   try {
     const params = tickers.length > 0 ? `?tickers=${tickers.join(',')}` : '';
-    const res = await fetch(`http://localhost:8000/historical/${scenarioId}${params}`);
+    const res = await fetch(`https://api.karamfrm.com/historical/${scenarioId}${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as {
       tickers: string[];
