@@ -12,7 +12,7 @@ import type { LookbackWindow, PricePoint } from '../types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const BACKEND = 'http://localhost:8000';
+const BACKEND = 'https://api.karamfrm.com';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — matches backend cache TTL
 
 // ─── Types ────────────────────────────────────────────────────────────────────
