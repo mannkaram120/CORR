@@ -28,12 +28,7 @@ export const SCENARIOS: Scenario[] = [
     description: 'Fed rate hike cycle — Jan–Jun 2022. Bonds and equities move together.',
     shocks: { 'Indices-Indices': 0.91, 'Rates-Indices': 0.65, 'FX-Rates': 0.60, 'Commodities-Rates': 0.55 },
   },
-  {
-    id: 'CNY_2015',
-    name: 'CNY 2015',
-    description: 'CNY devaluation — Aug 2015. EM and commodity pairs spike.',
-    shocks: { 'FX-FX': 0.72, 'Commodities-FX': 0.68, 'Indices-Commodities': 0.74 },
-  },
+
 ];
 
 export function scenarioLabel(id: ScenarioId): string {
