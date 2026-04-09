@@ -108,6 +108,7 @@ DEFAULT_VIX_CSV = "VIX_History.csv"
 # Format: Date,Open,High,Low,Close,Volume  (same as CBOE VIX CSV)
 # FTSE symbol on Stooq is FTSE (no ^ prefix — ^FTSE and ^UKX both fail)
 STOOQ_CSV_MAP: dict[str, str] = {
+<<<<<<< HEAD
     "SPX":  "spx_d.csv",
     "NDX":  "ndx_d.csv",
     "DJI":  "dji_d.csv",
@@ -117,6 +118,17 @@ STOOQ_CSV_MAP: dict[str, str] = {
     # GFC_2008 will be 23/24 tickers — acceptable
     "NKY":  "nkx_d.csv",
     "HSI":  "hsi_d.csv",
+=======
+    "SPX":  "^spx_d.csv",
+    "NDX":  "^ndx_d.csv",
+    "DJI":  "^dji_d.csv",
+    "DAX":  "^dax_d.csv",
+    # FTSE: not available on Stooq (^FTSE, ^UKX, FTSE all fail)
+    # IC Markets has FTSE from ~2020 onward — covered for COVID/RATES/CNY
+    # GFC_2008 will be 23/24 tickers — acceptable
+    "NKY":  "^nkx_d.csv",
+    "HSI":  "^hsi_d.csv",
+>>>>>>> 080aebc (fix: historical crisis data pipeline - MT5+FRED+CBOE+Stooq sources, 24 tickers, drop CNY_2015)
 }
 
 # ── Investing.com CSV for FTSE (different format from Stooq) ─────────────────
@@ -143,11 +155,15 @@ CRISIS_PERIODS = {
         "end":   "2022-12-31",
         "label": "Fed Rate Shock (Full Year 2022)",
     },
+<<<<<<< HEAD
     "CNY_2015": {
         "start": "2015-06-01",
         "end":   "2015-12-31",
         "label": "CNY Devaluation (Jun – Dec 2015)",
     },
+=======
+
+>>>>>>> 080aebc (fix: historical crisis data pipeline - MT5+FRED+CBOE+Stooq sources, 24 tickers, drop CNY_2015)
 }
 
 
