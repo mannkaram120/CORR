@@ -83,4 +83,5 @@ export interface PortfolioMetrics {
   portfolioVaR: number;
   correlationVaRContribution: number;
   marginalDiversification: MarginalDiversification[];
+  usingRealVols: boolean;  // true = real annualized vol, false = unit vol fallback
 }
