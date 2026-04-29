@@ -23,6 +23,7 @@ export function PortfolioPanel() {
   const portfolioMode          = useNexusStore(s => s.portfolioMode);
   const setPortfolioMode       = useNexusStore(s => s.setPortfolioMode);
   const portfolioMetrics       = useNexusStore(s => s.portfolioMetrics);
+  const realizedVols           = useNexusStore(s => s.realizedVols);
   const activeInstruments      = useNexusStore(s => s.activeInstruments);
   const [showInterpret, setShowInterpret] = useState(false);
 
@@ -70,7 +71,12 @@ export function PortfolioPanel() {
 
             {/* Left: weight sliders */}
             <div>
-              <div style={{ fontSize: 9, color: '#555', letterSpacing: '1.5px', marginBottom: 12 }}>INSTRUMENT WEIGHTS</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ fontSize: 9, color: '#555', letterSpacing: '1.5px' }}>INSTRUMENT WEIGHTS</span>
+                {realizedVols.size > 0 && (
+                  <span style={{ fontSize: 8, color: '#555', letterSpacing: '1px' }}>ANN. VOL</span>
+                )}
+              </div>
               {classes.map(cls => {
                 const group = activeInstrs.filter(i => i.assetClass === cls);
                 if (group.length === 0) return null;
@@ -106,6 +112,14 @@ export function PortfolioPanel() {
                             }}
                           />
                           <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>%</span>
+                          {(() => {
+                            const vol = realizedVols.get(instr.ticker);
+                            return vol ? (
+                              <span style={{ fontSize: 8, color: '#555', minWidth: 36, textAlign: 'right' }}>
+                                {(vol * 100).toFixed(1)}%
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                       );
                     })}
@@ -164,8 +178,14 @@ export function PortfolioPanel() {
                       ))}
                   </div>
 
-                  <div style={{ marginTop: 12, fontSize: 9, color: '#333', lineHeight: 1.5 }}>
-                    VaR estimates assume $10,000 portfolio, unit volatilities, 99% confidence.
+                  <div style={{ marginTop: 12, fontSize: 9, lineHeight: 1.5,
+                    color: portfolioMetrics.usingRealVols ? '#1E8449' : '#888',
+                    border: `1px solid ${portfolioMetrics.usingRealVols ? '#1E8449' : '#1E2330'}`,
+                    borderRadius: 3, padding: '6px 10px', background: '#0A0C10'
+                  }}>
+                    {portfolioMetrics.usingRealVols
+                      ? `✓ Using realized vols — VaR reflects actual market risk ($10,000 portfolio, 99% confidence, 1-day horizon)`
+                      : `⚠ Unit volatilities — VaR is structural only, not dollar risk. Start backend to load real vols.`}
                   </div>
 
                   {/* Interpretation button */}
