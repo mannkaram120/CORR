@@ -1,82 +1,113 @@
 /**
- * Portfolio metrics derived from a correlation/covariance matrix and weights.
+ * portfolio.ts — Portfolio metrics from correlation matrix + weights + realized vols.
  *
- * FIX: Portfolio VaR now documents clearly that it assumes unit volatility per
- * asset (i.e. uses the correlation matrix as if it were a covariance matrix).
- * If raw returns are provided without vol-normalisation, the VaR figure will
- * not reflect actual dollar risk — it is a relative / structural measure only.
- * To get true VaR, pre-normalise returns by each asset's historical volatility
- * before computing the correlation matrix, or pass a true covariance matrix.
+ * VaR now uses actual annualized volatility per instrument fetched from the backend.
+ * Formula: sigma_p = sqrt(w^T * Sigma * w)
+ * where Sigma[i][j] = r(i,j) * vol_i * vol_j  (covariance from correlation + vols)
+ *
+ * Falls back to unit vol (sigma_i = 1) if vols are unavailable — clearly labelled.
  */
 
 import type { PortfolioMetrics, PortfolioWeights, CorrelationMatrix } from '../types';
 
+// Portfolio value assumption for VaR display
+const PORTFOLIO_VALUE = 10_000;
+const Z_99 = 2.326; // 99% one-tailed
+
 export function computePortfolioMetrics(
   weights: PortfolioWeights,
-  corrMatrix: CorrelationMatrix
+  corrMatrix: CorrelationMatrix,
+  realizedVols?: Map<string, number>,   // annualized vol per ticker — optional
 ): PortfolioMetrics {
   const tickers = corrMatrix.tickers;
   const matrix  = corrMatrix.matrix;
-  const n = tickers.length;
-  const w = tickers.map(t => weights[t] ?? 0);
+  const n       = tickers.length;
+
+  const w    = tickers.map(t => weights[t] ?? 0);
   const sumW = w.reduce((s, v) => s + v, 0);
+
   if (sumW < 1e-12) {
     return {
-      weightedCorr: 0,
-      effectiveN: n,
-      portfolioVaR: 0,
+      weightedCorr:               0,
+      effectiveN:                 n,
+      portfolioVaR:               0,
       correlationVaRContribution: 0,
-      marginalDiversification: tickers.map(ticker => ({ ticker, md: 0 })),
+      marginalDiversification:    tickers.map(ticker => ({ ticker, md: 0 })),
+      usingRealVols:              false,
     };
   }
+
   const wNorm = w.map(v => v / sumW);
 
-  // Weighted average correlation (off-diagonal only)
+  // ── Per-instrument daily volatility ──────────────────────────────────────
+  // Use realized annualized vols if provided, else fall back to unit vol (1.0)
+  const hasRealVols = realizedVols && realizedVols.size > 0;
+  const vols: number[] = tickers.map(t => {
+    if (hasRealVols) {
+      const v = realizedVols!.get(t);
+      // Convert annualized vol to daily: sigma_daily = sigma_annual / sqrt(252)
+      return v ? v / Math.sqrt(252) : 1.0;
+    }
+    return 1.0; // unit vol fallback
+  });
+
+  // ── Weighted average correlation (off-diagonal) ───────────────────────────
   let weightedCorr = 0, totalPairWeight = 0;
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const pw = wNorm[i]! * wNorm[j]!;
-      weightedCorr += pw * matrix[i]![j]!;
+      weightedCorr   += pw * matrix[i]![j]!;
       totalPairWeight += pw;
     }
   }
   weightedCorr = totalPairWeight > 0 ? weightedCorr / totalPairWeight : 0;
 
-  // Effective N (Herfindahl-based): 1 / sum(wi^2)
-  const hhi = wNorm.reduce((s, v) => s + v * v, 0);
+  // ── Effective N ───────────────────────────────────────────────────────────
+  const hhi       = wNorm.reduce((s, v) => s + v * v, 0);
   const effectiveN = hhi > 1e-12 ? 1 / hhi : n;
 
-  /**
-   * Portfolio variance using the correlation matrix.
-   * ASSUMPTION: each asset has unit volatility (sigma_i = 1).
-   * This treats the correlation matrix as the covariance matrix.
-   * The resulting VaR is a structural/relative measure, not an absolute
-   * dollar-risk figure, unless returns have been vol-normalised beforehand.
-   */
+  // ── Portfolio variance using covariance = r(i,j) * vol_i * vol_j ─────────
+  // Sigma[i][j] = corr[i][j] * vol_i * vol_j  (daily covariance matrix)
   let portfolioVar = 0;
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
-      portfolioVar += wNorm[i]! * wNorm[j]! * (matrix[i]?.[j] ?? (i === j ? 1 : 0));
+      const corr_ij = i === j ? 1.0 : (matrix[i]?.[j] ?? 0);
+      portfolioVar += wNorm[i]! * wNorm[j]! * corr_ij * vols[i]! * vols[j]!;
     }
   }
-  const portfolioStd = Math.sqrt(Math.max(0, portfolioVar));
+  const portfolioStd = Math.sqrt(Math.max(0, portfolioVar)); // daily std
 
-  // Z-score for 99% one-tailed VaR
-  const Z_99 = 2.326;
-  const portfolioVaR = portfolioStd * Z_99 * 10000; // expressed in basis points
+  // ── 1-day VaR at 99% confidence ──────────────────────────────────────────
+  const portfolioVaR = portfolioStd * Z_99 * PORTFOLIO_VALUE;
 
-  // Uncorrelated baseline (all rho_ij = 0 for i != j): sigma_p = sqrt(sum wi^2)
-  const uncorrStd = Math.sqrt(wNorm.reduce((s, v) => s + v * v, 0));
-  const uncorrVaR = uncorrStd * Z_99 * 10000;
+  // ── Uncorrelated baseline VaR (all off-diagonal r = 0) ───────────────────
+  // sigma_uncorr = sqrt(sum(w_i^2 * vol_i^2))
+  const uncorrVar = wNorm.reduce((s, wi, i) => s + wi * wi * vols[i]! * vols[i]!, 0);
+  const uncorrVaR = Math.sqrt(uncorrVar) * Z_99 * PORTFOLIO_VALUE;
   const correlationVaRContribution = portfolioVaR - uncorrVaR;
 
+  // ── Marginal diversification ──────────────────────────────────────────────
+  // d(portfolio_var) / d(w_i) = 2 * sum_j [w_j * cov(i,j)]
+  // Normalised by 2 * sigma_p for interpretability
   const marginalDiversification = tickers.map((ticker, i) => {
-    let contrib = 0;
+    let covContrib = 0;
     for (let j = 0; j < n; j++) {
-      if (i !== j) contrib += wNorm[j]! * (matrix[i]?.[j] ?? 0);
+      const corr_ij = i === j ? 1.0 : (matrix[i]?.[j] ?? 0);
+      covContrib += wNorm[j]! * corr_ij * vols[i]! * vols[j]!;
     }
-    return { ticker, md: contrib * wNorm[i]! };
+    // Marginal contribution to portfolio std
+    const md = portfolioStd > 0
+      ? (wNorm[i]! * covContrib) / portfolioStd
+      : 0;
+    return { ticker, md };
   });
 
-  return { weightedCorr, effectiveN, portfolioVaR, correlationVaRContribution, marginalDiversification };
+  return {
+    weightedCorr,
+    effectiveN,
+    portfolioVaR,
+    correlationVaRContribution,
+    marginalDiversification,
+    usingRealVols: !!hasRealVols,
+  };
 }

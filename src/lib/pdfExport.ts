@@ -63,24 +63,3 @@ export async function exportPDF(params: {
 
   doc.save(`nexus_report_${report.lookback}_${report.method}_${Date.now()}.pdf`);
 }
-
-function buildHTMLReport(report: ReportData, imgUrl: string): string {
-  return `<!DOCTYPE html><html><head><title>NEXUS Report</title>
-<style>body{background:#0A0C10;color:#E8E3D5;font-family:'JetBrains Mono',monospace;padding:20px}
-h1{color:#4A9EFF;font-size:24px;margin-bottom:4px}
-h2{color:#4A9EFF;font-size:14px;margin:20px 0 8px;border-bottom:1px solid #1E2330;padding-bottom:4px}
-img{width:100%;border:1px solid #1E2330;border-radius:4px}
-.stat{display:flex;gap:20px;padding:4px 0;border-bottom:1px solid #1E2330}
-.k{color:#555;min-width:180px}.v{color:#E8E3D5}
-p{color:#888;font-size:12px;line-height:1.6}</style></head><body>
-<h1>NEXUS</h1><p>Cross-Asset Correlation Terminal — Research Report</p>
-<p>Generated: ${new Date(report.generatedAt).toLocaleString()} · Method: ${report.method} · Lookback: ${report.lookback}</p>
-<h2>CORRELATION MATRIX</h2><img src="${imgUrl}" alt="Heatmap"/>
-<h2>SUMMARY</h2><p>${report.narrative}</p>
-<div class="stat"><span class="k">Avg |r|</span><span class="v">${report.avgAbsCorr.toFixed(3)}</span></div>
-<div class="stat"><span class="k">Max correlation</span><span class="v">${report.maxCorr.tickers.join(' / ')}: +${report.maxCorr.r.toFixed(3)}</span></div>
-<div class="stat"><span class="k">Min correlation</span><span class="v">${report.minCorr.tickers.join(' / ')}: ${report.minCorr.r.toFixed(3)}</span></div>
-<div class="stat"><span class="k">Significant pairs</span><span class="v">${report.sigPairsPct}%</span></div>
-${report.pca ? `<div class="stat"><span class="k">AR1 absorption</span><span class="v">${(report.pca.absorptionRatios.ar1*100).toFixed(1)}% (${report.pca.ar1Percentile}th pct)</span></div>` : ''}
-</body></html>`;
-}
