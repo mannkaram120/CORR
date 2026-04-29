@@ -3,6 +3,7 @@ import { INSTRUMENTS } from '../data/instruments';
 import {
   fetchAllTickers, getReturnsLive, getAllReturnsLive, getPricesLive,
   invalidateCache, getDataSource, isInitInProgress,
+  fetchVolatilities,
 } from '../data/marketDataService';
 import { getReturns, getAllReturns, getPrices } from '../utils/dataSimulator';
 import { computeMatrix, rollingCorrelation, pearson, pearsonPValue } from '../utils/correlation';
@@ -65,6 +66,7 @@ interface NexusState {
   portfolioAutoNormalize: boolean;
   portfolioWeights: PortfolioWeights;
   portfolioMetrics: PortfolioMetrics | null;
+  realizedVols: Map<string, number>;
   causalityMode: boolean;
   causalityMatrix: GrangerMatrix | null;
   causalityStatus: 'idle' | 'computing' | 'ready' | 'error';
@@ -99,6 +101,7 @@ interface NexusState {
   dismissAlert: (key: string) => void;
   refreshData: () => void;
   setAboutOpen: (open: boolean) => void;
+  setRealizedVols: (vols: Map<string, number>) => void;
   setInterpretOpen: (open: boolean) => void;
 }
 
@@ -313,7 +316,7 @@ async function fetchHistoricalMatrix(
 ): Promise<CorrelationMatrix | null> {
   try {
     const params = tickers.length > 0 ? `?tickers=${tickers.join(',')}` : '';
-    const res = await fetch(`https://api.karamfrm.com/historical/${scenarioId}${params}`);
+    const res = await fetch(`http://localhost:8000/historical/${scenarioId}${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as {
       tickers: string[];
@@ -411,6 +414,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
     portfolioAutoNormalize: true,
     portfolioWeights: {},
     portfolioMetrics: null,
+    realizedVols: new Map<string, number>(),
     causalityMode: false,
     causalityMatrix: null,
     causalityStatus: 'idle',
@@ -430,7 +434,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       const baselineMatrix = buildMatrix(activeAssetClasses, activeInstruments, '1Y', method);
       const clusteredOrder = hierarchicalCluster(matrix.matrix);
       const base = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : matrix;
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
       set({ lookback, matrix, betaMatrix, pcaResult, baselineMatrix, clusteredOrder, lastRefreshed: new Date(), portfolioMetrics: metrics });
       get().computeCausality();
     },
@@ -443,7 +447,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       const baselineMatrix = buildMatrix(activeAssetClasses, activeInstruments, '1Y', method);
       const clusteredOrder = hierarchicalCluster(matrix.matrix);
       const base = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : matrix;
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
       set({ method, matrix, betaMatrix, pcaResult, baselineMatrix, clusteredOrder, lastRefreshed: new Date(), portfolioMetrics: metrics });
     },
 
@@ -454,7 +458,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       if (!live) return;
       if (activeScenario === 'LIVE') {
         const base = live;
-        const metrics = get().portfolioMode ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+        const metrics = get().portfolioMode ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
         set({ activeScenario, scenarioMatrix: null, portfolioMetrics: metrics });
         return;
       }
@@ -476,7 +480,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
           console.warn(`[CORR] Historical data unavailable for ${activeScenario} — using live blend fallback`);
           const scenarioMatrix = applyScenarioToLive(live, activeScenario);
           const metrics = get().portfolioMode
-            ? computePortfolioMetrics(get().portfolioWeights, scenarioMatrix) : null;
+            ? computePortfolioMetrics(get().portfolioWeights, scenarioMatrix, get().realizedVols) : null;
           set({ scenarioMatrix, isLoading: false, portfolioMetrics: metrics });
         }
       });
@@ -484,11 +488,12 @@ export const useNexusStore = create<NexusState>((set, get) => {
 
     setPortfolioOpen: (portfolioOpen) => set({ portfolioOpen }),
     setAboutOpen: (aboutOpen) => set({ aboutOpen }),
+    setRealizedVols: (realizedVols) => set({ realizedVols }),
     setInterpretOpen: (interpretOpen) => set({ interpretOpen }),
 
     setPortfolioMode: (portfolioMode) => {
       const base = getBaseMatrix();
-      const metrics = (portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
       set({ portfolioMode, portfolioMetrics: metrics });
     },
 
@@ -500,7 +505,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       if (sum <= 1e-12) return;
       Object.keys(weights).forEach(k => { weights[k] = weights[k]! / sum; });
       const base = getBaseMatrix();
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(weights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(weights, base, get().realizedVols) : null;
       set({ portfolioWeights: weights, portfolioMetrics: metrics });
     },
 
@@ -512,7 +517,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
         if (sum > 1e-12) Object.keys(next).forEach(k => { next[k] = next[k]! / sum; });
       }
       const base = getBaseMatrix();
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(next, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(next, base, get().realizedVols) : null;
       set({ portfolioWeights: next, portfolioMetrics: metrics });
     },
 
@@ -536,7 +541,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       const baselineMatrix = buildMatrix(ordered, activeInstruments, '1Y', method);
       const clusteredOrder = hierarchicalCluster(matrix.matrix);
       const base = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : matrix;
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
       set({ activeAssetClasses: ordered, matrix, betaMatrix, pcaResult, baselineMatrix, clusteredOrder, lastRefreshed: new Date(), portfolioMetrics: metrics });
     },
 
@@ -553,7 +558,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
       const baselineMatrix = buildMatrix(activeAssetClasses, next, '1Y', method);
       const clusteredOrder = hierarchicalCluster(matrix.matrix);
       const base = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : matrix;
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
       set({ activeInstruments: next, matrix, betaMatrix, pcaResult, baselineMatrix, clusteredOrder, lastRefreshed: new Date(), portfolioMetrics: metrics });
 
       // If adding a new ticker that has no live data yet, fetch it in the background
@@ -569,7 +574,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
           const updatedOrder     = hierarchicalCluster(updatedMatrix.matrix);
           const updatedStatus    = { ...get().liveDataStatus, [ticker]: getDataSource(ticker) };
           const updatedBase      = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : updatedMatrix;
-          const updatedMetrics   = (get().portfolioMode && updatedBase) ? computePortfolioMetrics(get().portfolioWeights, updatedBase) : null;
+          const updatedMetrics   = (get().portfolioMode && updatedBase) ? computePortfolioMetrics(get().portfolioWeights, updatedBase, get().realizedVols) : null;
           set({
             matrix: updatedMatrix, betaMatrix: updatedBeta, pcaResult: updatedPCA,
             baselineMatrix: updatedBaseline, clusteredOrder: updatedOrder,
@@ -591,22 +596,32 @@ export const useNexusStore = create<NexusState>((set, get) => {
     toggleCausalityMode: () => set(s => ({ causalityMode: !s.causalityMode })),
 
     computeCausality: () => {
-      const { activeAssetClasses, activeInstruments, lookback } = get();
+      const { activeAssetClasses, activeInstruments } = get();
       const instruments = INSTRUMENTS.filter(i =>
         activeAssetClasses.includes(i.assetClass) && activeInstruments.includes(i.ticker)
       );
       const tickers = instruments.map(i => i.ticker);
+
+      // Always use full 1Y return series for Granger — the test needs sufficient
+      // observations to have statistical power. Short lookbacks (1M = 21 obs)
+      // with lag=5 leave only df2=5 for the F-test, making significance impossible.
       const returnSeries: Record<string, number[]> = {};
-      tickers.forEach(t => { returnSeries[t] = getReturns(t, lookback); });
+      // Use live data if available, fallback to simulator — full 252-day series for statistical power
+      tickers.forEach(t => {
+        const live = getAllReturnsLive(t);
+        returnSeries[t] = live.length > 0 ? live : getAllReturns(t);
+      });
       const nObs = returnSeries[tickers[0] ?? '']?.length ?? 0;
 
-      const lags = 5;
-      const minObs = 3 * lags + 1;
+      // lag=2: enough statistical power, meaningful economic lead-lag
+      // minObs: need at least lags*3 + 10 observations for reliable F-test
+      const lags = 2;
+      const minObs = lags * 3 + 10;
       if (nObs < minObs) {
         set({
           causalityMatrix: null,
           causalityStatus: 'error',
-          causalityError: `Insufficient observations for ${lags}-lag Granger test (need ≥ ${minObs}, have ${nObs}).`,
+          causalityError: `Insufficient observations (need ≥ ${minObs}, have ${nObs}).`,
         });
         return;
       }
@@ -649,12 +664,30 @@ export const useNexusStore = create<NexusState>((set, get) => {
       const baselineMatrix = buildMatrix(activeAssetClasses, activeInstruments, '1Y', method);
       const clusteredOrder = hierarchicalCluster(matrix.matrix);
       const base = (get().activeScenario !== 'LIVE' && get().scenarioMatrix) ? get().scenarioMatrix : matrix;
-      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base) : null;
+      const metrics = (get().portfolioMode && base) ? computePortfolioMetrics(get().portfolioWeights, base, get().realizedVols) : null;
 
       set({
         matrix, betaMatrix, pcaResult, baselineMatrix, clusteredOrder,
         isLoading: false, dataReady: true, liveDataStatus,
         lastRefreshed: new Date(), portfolioMetrics: metrics,
+      });
+
+      // Fetch realized volatilities in background after data is ready
+      // These replace unit vols in the portfolio VaR calculation
+      fetchVolatilities(tickers).then(vols => {
+        get().setRealizedVols(vols);
+        // Recompute portfolio metrics with real vols if portfolio mode is on
+        const currentMatrix = get().matrix;
+        if (get().portfolioMode && currentMatrix) {
+          const updatedMetrics = computePortfolioMetrics(
+            get().portfolioWeights,
+            currentMatrix,
+            vols
+          );
+          set({ portfolioMetrics: updatedMetrics });
+        }
+      }).catch(() => {
+        console.warn('[CORR] Vol fetch failed — portfolio VaR using unit vols');
       });
     },
 
@@ -708,7 +741,7 @@ export const useNexusStore = create<NexusState>((set, get) => {
           matrix: newMatrix, betaMatrix: newBeta, pcaResult: newPCA,
           scenarioMatrix: null, activeScenario: 'LIVE',
           portfolioMetrics: get().portfolioMode
-            ? computePortfolioMetrics(get().portfolioWeights, newMatrix) : null,
+            ? computePortfolioMetrics(get().portfolioWeights, newMatrix, get().realizedVols) : null,
           baselineMatrix: newBaseline, prevMatrix: currentMatrix,
           clusteredOrder: newOrder, isLoading: false,
           lastRefreshed: new Date(), pairData, flashAlerts: allAlerts,
