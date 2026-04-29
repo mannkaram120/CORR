@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
-from data import fetch_prices, warm_cache, get_cache_status
+from data import fetch_prices, warm_cache, get_cache_status, get_volatilities
 from mt5_connection import MT5_TICKERS
 
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +43,24 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok", "cache": get_cache_status()}
+
+
+@app.get("/volatility")
+def get_vol(tickers: str = Query(default=None)):
+    """
+    Returns annualized realized volatility for all instruments.
+    vol = std(daily log returns) * sqrt(252)
+    Used by frontend to replace unit volatilities in VaR calculation.
+    """
+    try:
+        all_vols = get_volatilities()
+        if tickers:
+            requested = [t.strip().upper() for t in tickers.split(",")]
+            return {t: all_vols[t] for t in requested if t in all_vols}
+        return all_vols
+    except Exception as e:
+        log.error(f"Volatility endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/prices")

@@ -181,6 +181,46 @@ def fetch_prices(
     return result
 
 
+def get_volatilities() -> dict[str, float]:
+    """
+    Compute annualized realized volatility for all cached instruments.
+    vol = std(daily_returns) * sqrt(252)
+    Uses full available return history for stability.
+    """
+    import numpy as np
+    from data_engine import _price_store
+
+    result = {}
+
+    # MT5 instruments from price store
+    for ticker, data in _price_store.items():
+        closes = data.get("closes", [])
+        if len(closes) < 5:
+            continue
+        prices = np.array(closes, dtype=float)
+        returns = np.diff(np.log(prices))
+        if len(returns) < 2:
+            continue
+        daily_vol = float(np.std(returns, ddof=1))
+        annual_vol = daily_vol * np.sqrt(252)
+        result[ticker] = round(annual_vol, 6)
+
+    # Side-source instruments (FRED/Yahoo)
+    for ticker, data in _side_cache.items():
+        closes = data.get("closes", [])
+        if len(closes) < 5:
+            continue
+        prices = np.array(closes, dtype=float)
+        returns = np.diff(np.log(prices[prices > 0]))
+        if len(returns) < 2:
+            continue
+        daily_vol = float(np.std(returns, ddof=1))
+        annual_vol = daily_vol * np.sqrt(252)
+        result[ticker] = round(annual_vol, 6)
+
+    return result
+
+
 def warm_cache() -> None:
     """Called by FastAPI lifespan on startup."""
     if not connect():
