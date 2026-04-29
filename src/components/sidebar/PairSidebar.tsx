@@ -57,8 +57,9 @@ export function PairSidebar() {
   const baseR = (bri >= 0 && bci >= 0) ? baselineMatrix!.matrix[bri]![bci]! : avg1yR;
 
   // Rolling chart Y domain — auto-zoom
-  const rMin = Math.min(...rVals, currentR) - 0.03;
-  const rMax = Math.max(...rVals, currentR) + 0.03;
+  // Guard: Math.min/max of empty array returns Infinity/-Infinity which breaks Recharts
+  const rMin = rVals.length > 0 ? Math.min(...rVals, currentR) - 0.03 : currentR - 0.1;
+  const rMax = rVals.length > 0 ? Math.max(...rVals, currentR) + 0.03 : currentR + 0.1;
 
   // Regression line for scatter
   const regLine = useMemo(() => {
@@ -184,7 +185,7 @@ export function PairSidebar() {
                 <LineChart data={rollingCorr} margin={{ top: 8, right: 12, bottom: 4, left: 28 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1E2330" />
                   <XAxis dataKey="date" hide />
-                  <YAxis domain={[rMin, rMax]} tick={{ fontSize: 9, fill: '#555' }} tickCount={4} />
+                  <YAxis domain={[rMin, rMax]} tick={{ fontSize: 9, fill: '#555' }} tickCount={4} tickFormatter={(v: number) => v.toFixed(2)} />
                   <Tooltip contentStyle={TT_STYLE} formatter={(v: number) => [v.toFixed(4), 'r']} />
                   <ReferenceLine y={baseR} stroke="#FFB830" strokeDasharray="3 3" strokeWidth={0.8} />
                   <Line type="monotone" dataKey="r" stroke="#00D084" dot={false} strokeWidth={1.5} />
@@ -243,18 +244,41 @@ export function PairSidebar() {
         {/* Beta stats */}
         <div className="chart-section">
           <div className="chart-section-label">BETA STATS</div>
+          {betaStats.sigmaRatio > 5 && (
+            <div style={{ fontSize: 9, color: '#b45309', marginBottom: 6, padding: '4px 6px',
+              background: 'rgba(180,83,9,0.1)', border: '1px solid rgba(180,83,9,0.3)', borderRadius: 2 }}>
+              ⚠ σ ratio = {betaStats.sigmaRatio.toFixed(1)}× — volatilities differ significantly.
+              β is mathematically correct but analytically unreliable for this pair.
+            </div>
+          )}
           <div className="stats-grid">
             <div className="stat-card">
               <div className="stat-label">CURRENT β</div>
-              <span className="stat-value stat-value--neu">{betaStats.currentBeta.toFixed(3)}</span>
+              <span className="stat-value stat-value--neu" style={{
+                color: Math.abs(betaStats.currentBeta) > 5 ? '#b45309' : undefined
+              }}>
+                {Math.abs(betaStats.currentBeta) > 10
+                  ? `${betaStats.currentBeta > 0 ? '+' : ''}${betaStats.currentBeta.toFixed(1)} ⚠`
+                  : betaStats.currentBeta.toFixed(3)}
+              </span>
             </div>
             <div className="stat-card">
               <div className="stat-label">30D AVG β</div>
-              <span className="stat-value stat-value--neu">{betaStats.avg30dBeta.toFixed(3)}</span>
+              <span className="stat-value stat-value--neu" style={{
+                color: Math.abs(betaStats.avg30dBeta) > 5 ? '#b45309' : undefined
+              }}>
+                {Math.abs(betaStats.avg30dBeta) > 10
+                  ? `${betaStats.avg30dBeta > 0 ? '+' : ''}${betaStats.avg30dBeta.toFixed(1)} ⚠`
+                  : betaStats.avg30dBeta.toFixed(3)}
+              </span>
             </div>
             <div className="stat-card">
               <div className="stat-label">σ RATIO</div>
-              <span className="stat-value stat-value--neu">{betaStats.sigmaRatio.toFixed(3)}</span>
+              <span className="stat-value stat-value--neu" style={{
+                color: betaStats.sigmaRatio > 5 ? '#b45309' : undefined
+              }}>
+                {betaStats.sigmaRatio.toFixed(3)}
+              </span>
             </div>
           </div>
         </div>
