@@ -474,12 +474,17 @@ export function HeatmapD3() {
 
     // ── Causality arrow overlays ──────────────────────────────────────────────
     if (causalityMode && causalityStatus === 'ready' && causalityMatrix) {
+      const _cmH = causalityMatrix as unknown as { tickers: string[]; pValue: number[][]; alpha: number };
       cellData.forEach(d => {
         if (d.row === d.col) return;
-        const yx = causalityMatrix[`${d.row}_${d.col}`] as { pValue?: number; fStat?: number; lags?: number } | undefined;
-        const xy = causalityMatrix[`${d.col}_${d.row}`] as { pValue?: number; fStat?: number; lags?: number } | undefined;
-        const sigYX = ((yx?.pValue) ?? 1) < 0.05;
-        const sigXY = ((xy?.pValue) ?? 1) < 0.05;
+        const _tiH = _cmH.tickers.indexOf(d.row);
+        const _tjH = _cmH.tickers.indexOf(d.col);
+        const _pyxH = (_tiH >= 0 && _tjH >= 0) ? (_cmH.pValue[_tiH]?.[_tjH] ?? 1) : 1;
+        const _pxyH = (_tiH >= 0 && _tjH >= 0) ? (_cmH.pValue[_tjH]?.[_tiH] ?? 1) : 1;
+        const yx = { pValue: _pyxH, lags: 2 };
+        const xy = { pValue: _pxyH, lags: 2 };
+        const sigYX = _pyxH < 0.05;
+        const sigXY = _pxyH < 0.05;
         if (!sigYX && !sigXY) return;
         const symbol = sigYX && sigXY ? '↔' : sigYX ? '→' : '←';
 
@@ -568,18 +573,23 @@ export function HeatmapD3() {
 
       let causalityText = '';
       if (causalityMode && causalityStatus === 'ready' && causalityMatrix && row !== col) {
-        const yx = causalityMatrix[`${row}_${col}`] as { pValue?: number; fStat?: number; lags?: number } | undefined;
-        const xy = causalityMatrix[`${col}_${row}`] as { pValue?: number; fStat?: number; lags?: number } | undefined;
+        const _cm2 = causalityMatrix as unknown as { tickers: string[]; pValue: number[][]; alpha: number };
+        const _ti2 = _cm2.tickers.indexOf(row);
+        const _tj2 = _cm2.tickers.indexOf(col);
+        const _pyx2 = (_ti2 >= 0 && _tj2 >= 0) ? _cm2.pValue[_ti2]?.[_tj2] : undefined;
+        const _pxy2 = (_ti2 >= 0 && _tj2 >= 0) ? _cm2.pValue[_tj2]?.[_ti2] : undefined;
+        const yx = _pyx2 !== undefined ? { pValue: _pyx2, lags: 2 } : undefined;
+        const xy = _pxy2 !== undefined ? { pValue: _pxy2, lags: 2 } : undefined;
         const sigYX = ((yx?.pValue) ?? 1) < 0.05;
         const sigXY = ((xy?.pValue) ?? 1) < 0.05;
         if (sigYX && sigXY) {
-          causalityText = `Bidirectional Granger causality (p<0.05, lags=${yx?.lags ?? 5})`;
+          causalityText = `Bidirectional Granger causality (p<0.05, lags=${yx?.lags ?? 2})`;
         } else if (sigYX && yx) {
-          causalityText = `${col} Granger-causes ${row} (F=${(yx.fStat ?? 0).toFixed(2)}, p=${(yx.pValue ?? 0).toFixed(3)}, ${yx.lags ?? 5} lags)`;
+          causalityText = `${col} → ${row} (p=${(yx.pValue ?? 0).toFixed(3)}, lags=${yx.lags ?? 2})`;
         } else if (sigXY && xy) {
-          causalityText = `${row} Granger-causes ${col} (F=${(xy.fStat ?? 0).toFixed(2)}, p=${(xy.pValue ?? 0).toFixed(3)}, ${xy.lags ?? 5} lags)`;
+          causalityText = `${row} → ${col} (p=${(xy.pValue ?? 0).toFixed(3)}, lags=${xy.lags ?? 2})`;
         } else {
-          causalityText = `No significant Granger causality (α=0.05, lags=${yx?.lags ?? 5})`;
+          causalityText = `No significant Granger causality (α=0.05, lags=2)`;
         }
       }
 
