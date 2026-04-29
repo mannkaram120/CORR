@@ -12,7 +12,7 @@ import type { LookbackWindow, PricePoint } from '../types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const BACKEND = 'https://api.karamfrm.com';
+const BACKEND = 'http://localhost:8000';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — matches backend cache TTL
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -157,6 +157,46 @@ export async function fetchAllTickers(
   }
 
   return result;
+}
+
+// ─── Realized volatility ─────────────────────────────────────────────────────
+// Fetched from backend — annualized daily vol computed from full return history
+
+const _volCache = new Map<string, number>();
+let _volFetchedAt = 0;
+const VOL_TTL_MS = 60 * 60 * 1000; // 1 hour — vol changes slowly
+
+export async function fetchVolatilities(
+  tickers?: string[]
+): Promise<Map<string, number>> {
+  const now = Date.now();
+  // Serve from memory cache if fresh
+  if (_volCache.size > 0 && (now - _volFetchedAt) < VOL_TTL_MS) {
+    return _volCache;
+  }
+
+  try {
+    const params = tickers ? `?tickers=${tickers.join(',')}` : '';
+    const res = await fetch(`${BACKEND}/volatility${params}`);
+    if (!res.ok) throw new Error(`Volatility endpoint: HTTP ${res.status}`);
+    const data = await res.json() as Record<string, number>;
+    _volCache.clear();
+    Object.entries(data).forEach(([t, v]) => _volCache.set(t, v));
+    _volFetchedAt = now;
+    console.log(`[CORR] Volatilities loaded: ${_volCache.size} instruments`);
+    return _volCache;
+  } catch (err) {
+    console.warn('[CORR] Volatility fetch failed — VaR will use unit vols:', err);
+    return _volCache; // return whatever we had before
+  }
+}
+
+export function getVolatility(ticker: string): number | null {
+  return _volCache.has(ticker) ? _volCache.get(ticker)! : null;
+}
+
+export function getAllVolatilities(): Map<string, number> {
+  return _volCache;
 }
 
 // ─── Public read API ──────────────────────────────────────────────────────────
