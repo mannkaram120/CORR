@@ -81,7 +81,7 @@ export function InterpretationPanel() {
     }
   }
 
-  const vals = allPairs.map(p => p.r);
+  const vals = allPairs.map(p => Math.abs(p.r));  // must use |r| — signed values cancel to ~0
   const avgCorr = vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
   const sigPairs = allPairs.filter(p => p.p < 0.05).length;
 
